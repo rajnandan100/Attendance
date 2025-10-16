@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BASU Attendance System</title>
+  
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & ReactDOM from CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel Standalone for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <style>
+    @media print {
+      body * { visibility: hidden; }
+      #print-area, #print-area * { visibility: visible; }
+      #print-area { position: absolute; left: 0; top: 0; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="gsi-btn" style="display:none;"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    // ========== CONFIGURATION ==========
+    const CONFIG = {
+      GOOGLE_CLIENT_ID: "YOUR_GOOGLE_CLIENT_ID", // Replace with your Google Client ID
+      APPS_SCRIPT_URL: "YOUR_APPS_SCRIPT_URL"     // Replace with your Apps Script Web App URL
+    };
+
+    // ========== STUDENT DATA ==========
+    const STUDENTS = [
+      { sNo:1, name:"Praneet Sinha", roll:"SDT-01/2024", present:false },
+      { sNo:2, name:"Raj Nandan", roll:"SDT-02/2024", present:false },
+      { sNo:3, name:"Prashant kumar", roll:"SDT-03/2024", present:false },
+      { sNo:4, name:"Aryan kumar", roll:"SDT-05/2024", present:false },
+      { sNo:5, name:"Anurag kumar", roll:"SDT-06/2024", present:false },
+      { sNo:6, name:"Priyanshu Raj", roll:"SDT-07/2024", present:false },
+      { sNo:7, name:"Priyanshu Raj", roll:"SDT-08/2024", present:false },
+      { sNo:8, name:"Praveen kumar", roll:"SDT-10/2024", present:false },
+      { sNo:9, name:"Nishu kumar", roll:"SDT-11/2024", present:false },
+      { sNo:10, name:"Sandeep Kumar", roll:"SDT-12/2024", present:false },
+      { sNo:11, name:"Aditya Kumar", roll:"SDT-13/2024", present:false },
+      { sNo:12, name:"Vivek Kumar", roll:"SDT-14/2024", present:false },
+      { sNo:13, name:"Aditya Kumar", roll:"SDT-18/2024", present:false },
+      { sNo:14, name:"Vivek Kumar", roll:"SDT-19/2024", present:false },
+      { sNo:15, name:"Prince kumar", roll:"SDT-20/2024", present:false },
+      { sNo:16, name:"Shivam Prakash", roll:"SDT-21/2024", present:false },
+      { sNo:17, name:"Devanand", roll:"SDT-22/2024", present:false },
+      { sNo:18, name:"Khushi Kumari", roll:"SDT-23/2024", present:false },
+      { sNo:19, name:"Vivek Kumar", roll:"SDT-25/2024", present:false },
+      { sNo:20, name:"Aadesh kumar", roll:"SDT-26/2024", present:false },
+      { sNo:21, name:"Manish Kumar", roll:"SDT-28/2024", present:false },
+      { sNo:22, name:"Birju Kumar", roll:"SDT-29/2024", present:false },
+      { sNo:23, name:"Kumar ishant raj", roll:"SDT-30/2024", present:false },
+      { sNo:24, name:"Madhu kumari", roll:"SDT-31/2024", present:false },
+      { sNo:25, name:"Shubhan kumar", roll:"SDT-32/2024", present:false },
+      { sNo:26, name:"Prince kumar", roll:"SDT-33/2024", present:false },
+      { sNo:27, name:"Priyanshi kumari", roll:"SDT-35/2024", present:false },
+      { sNo:28, name:"Sristy Rani", roll:"SDT-36/2024", present:false },
+      { sNo:29, name:"Shubham Kumar", roll:"SDT-37/2024", present:false },
+      { sNo:30, name:"Deepak kumar", roll:"SDT-38/2024", present:false },
+      { sNo:31, name:"Raj Aryan", roll:"SDT-39/2024", present:false }
+    ];
+
+    // ========== BATCH & SUBJECT DATA ==========
+    const BATCHES = [
+      { id:"DTM-121", subjects:["Dairy Tech Basics","Food Chemistry","Plant Practice"] },
+      { id:"DTE-122", subjects:["Engineering Drawing","Workshop Practice","Thermodynamics"] },
+      { id:"DTE-123", subjects:["Heat & Mass Transfer","Fluid Mechanics","Dairy Electives"] }
+    ];
+
+    // ========== MAIN APP COMPONENT ==========
+    function App() {
+      const [user, setUser] = useState(null);
+      const [idToken, setIdToken] = useState(null);
+      const [batch, setBatch] = useState(BATCHES[0].id);
+      const [subject, setSubject] = useState(BATCHES[0].subjects[0]);
+      const [list, setList] = useState(STUDENTS);
+      const [started, setStarted] = useState(false);
+      const [submitting, setSubmitting] = useState(false);
+      const [preview, setPreview] = useState(false);
+
+      const subjects = useMemo(
+        () => BATCHES.find(b => b.id === batch)?.subjects ?? [],
+        [batch]
+      );
+
+      useEffect(() => {
+        if (!CONFIG.GOOGLE_CLIENT_ID || CONFIG.GOOGLE_CLIENT_ID === "YOUR_GOOGLE_CLIENT_ID") {
+          console.warn("⚠️ Please set your GOOGLE_CLIENT_ID in the CONFIG section");
+          return;
+        }
+
+        if (window.google?.accounts) {
+          window.google.accounts.id.initialize({
+            client_id: CONFIG.GOOGLE_CLIENT_ID,
+            callback: handleCredentialResponse,
+            auto_select: false,
+            ux_mode: "popup"
+          });
+        }
+      }, []);
+
+      const handleCredentialResponse = (response) => {
+        setIdToken(response.credential);
+        // Decode JWT to get email (simple base64 decode of payload)
+        try {
+          const payload = JSON.parse(atob(response.credential.split('.')[1]));
+          setUser({ email: payload.email, name: payload.name, picture: payload.picture });
+        } catch (e) {
+          setUser({ email: "professor@example.com" });
+        }
+      };
+
+      const signIn = () => {
+        if (window.google?.accounts) {
+          window.google.accounts.id.prompt((notification) => {
+            if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+              // Fallback to button
+              window.google.accounts.id.renderButton(
+                document.getElementById("gsi-btn"),
+                { theme: "filled_blue", size: "large", type: "standard", text: "signin_with" }
+              );
+              document.getElementById("gsi-btn").style.display = "block";
+            }
+          });
+        } else {
+          alert("Google Sign-In not loaded. Check your internet connection.");
+        }
+      };
+
+      const signOut = () => {
+        if (window.google?.accounts) {
+          window.google.accounts.id.disableAutoSelect();
+        }
+        setUser(null);
+        setIdToken(null);
+        setStarted(false);
+        setList(STUDENTS.map(s => ({...s, present:false})));
+      };
+
+      const startAttendance = () => {
+        setStarted(true);
+        setList(STUDENTS.map(s => ({...s, present:false})));
+      };
+
+      const toggle = (sNo) => {
+        setList(prev =>
+          prev.map(s => s.sNo === sNo ? { ...s, present: !s.present } : s)
+        );
+      };
+
+      const totalPresent = list.filter(s => s.present).length;
+      const totalAbsent = list.length - totalPresent;
+      const timestamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+
+      const submit = async () => {
+        setSubmitting(true);
+        try {
+          const record = {
+            batch,
+            subject,
+            timestamp,
+            by: user?.email,
+            rows: list
+          };
+          
+          // Save locally
+          localStorage.setItem("lastAttendance", JSON.stringify(record));
+
+          // Send to Google Apps Script
+          if (CONFIG.APPS_SCRIPT_URL && CONFIG.APPS_SCRIPT_URL !== "YOUR_APPS_SCRIPT_URL") {
+            const response = await fetch(CONFIG.APPS_SCRIPT_URL, {
+              method: "POST",
+              mode: "no-cors",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(record)
+            });
+            console.log("✅ Attendance submitted to Google Sheets");
+          }
+          
+          setPreview(true);
+        } catch (e) {
+          console.error("Submission error:", e);
+          alert("Submission completed locally. Check console for details.");
+          setPreview(true);
+        } finally {
+          setSubmitting(false);
+        }
+      };
+
+      const printSheet = () => {
+        window.print();
+      };
+
+      // ========== LOGIN SCREEN ==========
+      if (!user) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+            <div className="w-full max-w-md bg-white shadow-lg rounded-xl p-8 text-center">
+              <div className="text-4xl font-extrabold mb-2" style={{color:"#0a2a66"}}>
+                BASU
+              </div>
+              <div className="text-sm text-slate-600 mb-8 leading-relaxed">
+                Sanjay Gandhi Institute of Dairy Technology, Patna
+              </div>
+              <button
+                onClick={signIn}
+                className="w-full rounded-lg bg-blue-600 text-white py-3 font-medium hover:bg-blue-700 transition shadow-md"
+              >
+                Sign in with Google
+              </button>
+              <div id="gsi-btn-container" className="mt-6 flex justify-center"></div>
+              <p className="mt-6 text-xs text-slate-500">
+                Only authorized professors can access this system
+              </p>
+            </div>
+          </div>
+        );
+      }
+
+      // ========== MAIN APP SCREEN ==========
+      return (
+        <div className="min-h-screen bg-slate-50">
+          {/* Header */}
+          <header className="bg-white border-b shadow-sm">
+            <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <div className="text-2xl md:text-3xl font-extrabold" style={{color:"#0a2a66"}}>
+                  BASU
+                </div>
+                <div className="text-xs md:text-sm text-slate-700 max-w-md">
+                  Sanjay Gandhi Institute of Dairy Technology, Patna
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {user.picture && (
+                  <img src={user.picture} alt="avatar" className="w-8 h-8 rounded-full" />
+                )}
+                <div className="text-right">
+                  <div className="text-sm font-medium text-slate-800">{user.name}</div>
+                  <div className="text-xs text-slate-500">{user.email}</div>
+                </div>
+                <button
+                  onClick={signOut}
+                  className="ml-2 text-sm text-slate-500 hover:text-slate-800 underline"
+                >
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-6xl mx-auto px-4 py-6">
+            {/* Selection Card */}
+            <div className="bg-white shadow rounded-xl p-5 mb-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Select Batch
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={batch}
+                    onChange={e => {
+                      setBatch(e.target.value);
+                      const newSubjects = BATCHES.find(b => b.id === e.target.value)?.subjects ?? [];
+                      setSubject(newSubjects[0]);
+                    }}
+                  >
+                    {BATCHES.map(b => (
+                      <option key={b.id} value={b.id}>{b.id}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Select Subject
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={subject}
+                    onChange={e => setSubject(e.target.value)}
+                  >
+                    {subjects.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <button
+                    onClick={startAttendance}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-4 py-2.5 font-medium transition shadow-md"
+                  >
+                    Take Attendance
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Attendance List */}
+            {started && (
+              <div className="bg-white shadow rounded-xl overflow-hidden">
+                <div className="p-4 bg-slate-50 border-b flex items-center justify-between flex-wrap gap-3">
+                  <div className="text-slate-700 text-sm font-medium">
+                    {batch} • {subject}
+                  </div>
+                  <div className="text-sm flex gap-4">
+                    <span className="text-emerald-700 font-semibold">
+                      ✓ Present: {totalPresent}
+                    </span>
+                    <span className="text-slate-700">
+                      ✗ Absent: {totalAbsent}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="divide-y max-h-[500px] overflow-y-auto">
+                  {list.map(s => (
+                    <div
+                      key={s.sNo}
+                      className="flex items-center justify-between p-4 hover:bg-slate-50 transition"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-8 text-slate-500 font-medium text-sm">
+                          {s.sNo}
+                        </div>
+                        <div>
+                          <div className="font-medium text-slate-800">{s.name}</div>
+                          <div className="text-xs text-slate-500">{s.roll}</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => toggle(s.sNo)}
+                        className={`px-4 py-2 rounded-full text-sm font-medium border-2 transition-all ${
+                          s.present
+                            ? "bg-emerald-100 border-emerald-500 text-emerald-700 shadow-sm"
+                            : "bg-slate-100 border-slate-300 text-slate-600 hover:border-slate-400"
+                        }`}
+                      >
+                        {s.present ? "✓ Present" : "✗ Absent"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-4 border-t bg-slate-50 flex items-center justify-between flex-wrap gap-3">
+                  <div className="text-sm text-slate-600">
+                    {timestamp}
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setPreview(true)}
+                      className="border-2 border-slate-300 rounded-lg px-5 py-2 text-slate-700 font-medium hover:bg-white transition"
+                    >
+                      Preview
+                    </button>
+                    <button
+                      disabled={submitting}
+                      onClick={submit}
+                      className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-6 py-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition shadow-md"
+                    >
+                      {submitting ? "Submitting..." : "Submit Attendance"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </main>
+
+          {/* Preview Modal */}
+          {preview && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+              <div className="bg-white w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden">
+                <div id="print-area" className="p-6">
+                  <div className="text-center mb-6">
+                    <div className="text-2xl font-bold mb-1" style={{color:"#0a2a66"}}>
+                      Sanjay Gandhi Institute of Dairy Technology, Patna
+                    </div>
+                    <div className="text-lg font-semibold text-slate-700 mb-1">
+                      Attendance Sheet
+                    </div>
+                    <div className="text-sm text-slate-600">
+                      {batch} • {subject} • {timestamp}
+                    </div>
+                    <div className="text-sm text-slate-600 mt-1">
+                      Submitted by: {user.email}
+                    </div>
+                  </div>
+                  
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="max-h-96 overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-100 sticky top-0">
+                          <tr>
+                            <th className="p-3 text-left font-semibold">S.No.</th>
+                            <th className="p-3 text-left font-semibold">Name</th>
+                            <th className="p-3 text-left font-semibold">Roll Number</th>
+                            <th className="p-3 text-left font-semibold">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {list.map(s => (
+                            <tr key={s.sNo} className="border-t hover:bg-slate-50">
+                              <td className="p-3">{s.sNo}</td>
+                              <td className="p-3 font-medium">{s.name}</td>
+                              <td className="p-3 text-slate-600">{s.roll}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  s.present
+                                    ? "bg-emerald-100 text-emerald-700"
+                                    : "bg-slate-100 text-slate-700"
+                                }`}>
+                                  {s.present ? "Present" : "Absent"}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 grid grid-cols-2 gap-6 text-sm border-t pt-4">
+                    <div>
+                      <div className="font-semibold text-slate-700">Summary</div>
+                      <div className="text-slate-600 mt-1">
+                        Total Students: {list.length}
+                      </div>
+                      <div className="text-emerald-700 mt-1 font-medium">
+                        Present: {totalPresent}
+                      </div>
+                      <div className="text-slate-700 mt-1">
+                        Absent: {totalAbsent}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold text-slate-700">Signature</div>
+                      <div className="mt-8 border-t border-slate-300 pt-2 text-slate-600">
+                        Professor's Signature
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 border-t bg-slate-50 flex items-center justify-end gap-3">
+                  <button
+                    onClick={printSheet}
+                    className="border-2 border-slate-300 rounded-lg px-5 py-2 font-medium hover:bg-white transition"
+                  >
+                    🖨️ Print / Download
+                  </button>
+                  <button
+                    onClick={() => setPreview(false)}
+                    className="bg-slate-800 hover:bg-slate-900 text-white rounded-lg px-6 py-2 font-medium transition"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ========== RENDER APP ==========
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
